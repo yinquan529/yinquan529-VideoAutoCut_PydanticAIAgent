@@ -209,6 +209,41 @@ class TestExtractFrames:
         assert result.strategy == ExtractionStrategy.KEYFRAME
         assert len(result.frames) == 1
 
+    def test_dedup_active_removes_frames(
+        self,
+        mock_settings: Settings,
+        video_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """When deduplicate=True and frames have identical sizes, result is rebuilt."""
+        out_dir = tmp_path / "out"
+        call_count = 0
+
+        def mock_run(self_tools, args: list[str], **kw):
+            nonlocal call_count
+            if call_count == 0:
+                call_count += 1
+                return _completed(stdout=SAMPLE_PROBE_JSON)
+            call_count += 1
+            for arg in args:
+                if arg.endswith(".jpg"):
+                    Path(arg).parent.mkdir(parents=True, exist_ok=True)
+                    # All frames get the same size → dedup will remove duplicates
+                    Path(arg).write_bytes(b"\xff\xd8" + b"\x00" * 2000)
+            return _completed()
+
+        from video_autocut.infrastructure.ffmpeg import FFmpegTools
+
+        monkeypatch.setattr(FFmpegTools, "_run_command", mock_run)
+
+        result = extract_frames(
+            video_file, max_frames=3, output_dir=out_dir, deduplicate=True,
+        )
+        # Dedup should keep only the first frame (consecutive same-size removal)
+        assert len(result.frames) == 1
+        assert result.frames[0].frame_index == 0
+
     def test_invalid_strategy_raises(
         self,
         mock_settings: Settings,
@@ -352,6 +387,9 @@ class TestDeduplication:
         )
         # All 3 frames should be present since dedup is off
         assert len(result.frames) == 3
+
+    def test_empty_list(self):
+        assert _remove_duplicates([]) == []
 
     def test_missing_file_skipped(self, tmp_path: Path):
         """Frames whose files don't exist are silently dropped."""
