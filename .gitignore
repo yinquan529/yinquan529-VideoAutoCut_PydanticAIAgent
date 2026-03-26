@@ -24,9 +24,7 @@ ENV/
 
 # Testing
 .pytest_cache/
-htmlcov/
 .coverage
-coverage.xml
 
 # Ruff
 .ruff_cache/
