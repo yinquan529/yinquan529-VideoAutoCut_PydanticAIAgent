@@ -19,6 +19,7 @@ from video_autocut.domain.models import (
     VideoMetadata,
 )
 from video_autocut.infrastructure.exceptions import (
+    FFmpegError,
     FFmpegNotFoundError,
     VideoProbeError,
     VideoValidationError,
@@ -72,6 +73,41 @@ def _make_metadata(tmp_path: Path, duration: float | None = 120.5) -> VideoMetad
         name="test.mp4",
         duration_seconds=duration,
     )
+
+
+# ---------------------------------------------------------------------------
+# check_ffmpeg / check_ffprobe
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _run_command (real subprocess boundary)
+# ---------------------------------------------------------------------------
+
+
+class TestRunCommand:
+    def test_success(self, tools: FFmpegTools, monkeypatch: pytest.MonkeyPatch):
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: completed)
+        result = tools._run_command(["echo", "hi"])
+        assert result.returncode == 0
+        assert result.stdout == "ok"
+
+    def test_file_not_found(self, tools: FFmpegTools, monkeypatch: pytest.MonkeyPatch):
+        def _raise(*a, **kw):
+            raise FileNotFoundError("no such file")
+        monkeypatch.setattr(subprocess, "run", _raise)
+        with pytest.raises(FFmpegNotFoundError, match="Executable not found"):
+            tools._run_command(["nonexistent"])
+
+    def test_timeout(self, tools: FFmpegTools, monkeypatch: pytest.MonkeyPatch):
+        def _raise(*a, **kw):
+            raise subprocess.TimeoutExpired(cmd="test", timeout=1)
+        monkeypatch.setattr(subprocess, "run", _raise)
+        with pytest.raises(FFmpegError, match="timed out"):
+            tools._run_command(["slow_cmd"], timeout=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +193,15 @@ class TestProbeVideo:
         with pytest.raises(VideoProbeError, match="invalid JSON"):
             tools.probe_video(Path("/fake/video.mp4"))
 
+    def test_ffprobe_not_found(
+        self, tools: FFmpegTools, monkeypatch: pytest.MonkeyPatch
+    ):
+        def _raise(*a, **kw):
+            raise FFmpegNotFoundError("not found")
+        monkeypatch.setattr(tools, "_run_command", _raise)
+        with pytest.raises(FFmpegNotFoundError):
+            tools.probe_video(Path("/fake/video.mp4"))
+
     def test_no_video_stream(
         self, tools: FFmpegTools, monkeypatch: pytest.MonkeyPatch
     ):
@@ -198,6 +243,9 @@ class TestParseFrameRate:
 
     def test_invalid_string(self):
         assert _parse_frame_rate("garbage") is None
+
+    def test_invalid_fraction(self):
+        assert _parse_frame_rate("abc/def") is None
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +363,102 @@ class TestExtractFrames:
         assert result.frames[0].timestamp_seconds == pytest.approx(5.2)
         assert result.frames[2].timestamp_seconds == pytest.approx(30.1)
         assert result.strategy == ExtractionStrategy.SCENE_CHANGE
+
+    def test_uniform_frame_ffmpeg_error(
+        self,
+        tools: FFmpegTools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """FFmpegError on individual frame extraction is collected as a PipelineError."""
+        out_dir = tmp_path / "frames"
+        meta = _make_metadata(tmp_path, duration=10.0)
+
+        def mock_run(args: list[str], **kw):
+            raise FFmpegError("binary crashed")
+
+        monkeypatch.setattr(tools, "_run_command", mock_run)
+        request = FrameExtractionRequest(
+            video=meta, max_frames=2, output_dir=out_dir,
+        )
+        result = tools.extract_frames(request)
+        assert len(result.frames) == 0
+        assert len(result.errors) == 2
+        assert result.errors[0].category == ErrorCategory.FRAME_EXTRACTION
+
+    def test_uniform_nonzero_exit(
+        self,
+        tools: FFmpegTools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Nonzero exit code without output file is collected as a PipelineError."""
+        out_dir = tmp_path / "frames"
+        meta = _make_metadata(tmp_path, duration=10.0)
+
+        monkeypatch.setattr(
+            tools, "_run_command",
+            lambda args, **kw: _completed(returncode=1, stderr="encode error"),
+        )
+        request = FrameExtractionRequest(
+            video=meta, max_frames=2, output_dir=out_dir,
+        )
+        result = tools.extract_frames(request)
+        assert len(result.frames) == 0
+        assert len(result.errors) == 2
+        assert "exit 1" in result.errors[0].message
+
+    def test_filter_based_ffmpeg_error(
+        self,
+        tools: FFmpegTools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """FFmpegError during filter-based extraction is collected."""
+        out_dir = tmp_path / "frames"
+        out_dir.mkdir(parents=True)
+        meta = _make_metadata(tmp_path, duration=60.0)
+
+        def mock_run(args: list[str], **kw):
+            raise FFmpegError("filter crash")
+
+        monkeypatch.setattr(tools, "_run_command", mock_run)
+        request = FrameExtractionRequest(
+            video=meta,
+            strategy=ExtractionStrategy.SCENE_CHANGE,
+            max_frames=5,
+            output_dir=out_dir,
+        )
+        result = tools.extract_frames(request)
+        assert len(result.frames) == 0
+        assert len(result.errors) == 1
+        assert "Filter-based extraction failed" in result.errors[0].message
+
+    def test_filter_based_nonzero_exit(
+        self,
+        tools: FFmpegTools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Nonzero exit from filter-based extraction is collected."""
+        out_dir = tmp_path / "frames"
+        out_dir.mkdir(parents=True)
+        meta = _make_metadata(tmp_path, duration=60.0)
+
+        monkeypatch.setattr(
+            tools, "_run_command",
+            lambda args, **kw: _completed(returncode=1, stderr="vf error"),
+        )
+        request = FrameExtractionRequest(
+            video=meta,
+            strategy=ExtractionStrategy.KEYFRAME,
+            max_frames=5,
+            output_dir=out_dir,
+        )
+        result = tools.extract_frames(request)
+        assert len(result.frames) == 0
+        assert len(result.errors) == 1
+        assert "exit 1" in result.errors[0].message
 
     def test_creates_output_dir(
         self,
