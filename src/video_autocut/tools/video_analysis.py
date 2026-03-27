@@ -73,6 +73,11 @@ For each frame, identify:
 
 Be precise and objective.  Describe what you see, not what you infer."""
 
+_LANG_INSTRUCTIONS: dict[str, str] = {
+    "en": "You MUST write all output text in English.",
+    "zh": "你必须用中文撰写所有输出内容。",
+}
+
 SYNTHESIS_PROMPT = """\
 You are a professional video analyst.  Synthesize the per-frame analyses \
 below into a coherent video content summary.
@@ -94,12 +99,21 @@ generation."""
 # ---------------------------------------------------------------------------
 
 
+def _localized_prompt(prompt: str, lang: str) -> str:
+    """Append a language instruction to *prompt* if *lang* is not English."""
+    instruction = _LANG_INSTRUCTIONS.get(lang, "")
+    if instruction:
+        return f"{prompt}\n\n{instruction}"
+    return prompt
+
+
 async def analyze_video(
     video_path: str | Path,
     *,
     strategy: str = "uniform",
     max_frames: int = 10,
     user_prompt: str = "",
+    lang: str = "en",
     settings: Settings | None = None,
 ) -> VideoAnalysisResult:
     """Analyze a video end-to-end: extract → analyze → synthesize.
@@ -115,6 +129,7 @@ async def analyze_video(
         max_frames: Maximum number of frames to extract and analyze.
         user_prompt: Optional context from the user that is included in
             every LLM prompt (e.g. "focus on the outdoor scenes").
+        lang: Output language code (``"en"`` or ``"zh"``).
         settings: Explicit settings instance.  When *None* the cached
             singleton from :func:`get_settings` is used.
 
@@ -165,6 +180,7 @@ async def analyze_video(
                 video_name=video_name,
                 model_name=model_name,
                 user_prompt=user_prompt,
+                lang=lang,
                 settings=settings,
             )
             all_errors.extend(analysis_errors)
@@ -177,6 +193,7 @@ async def analyze_video(
                     video_name=video_name,
                     model_name=model_name,
                     user_prompt=user_prompt,
+                    lang=lang,
                     settings=settings,
                 )
                 content_summary = summary
@@ -221,6 +238,7 @@ async def _analyze_frames(
     video_name: str,
     model_name: str,
     user_prompt: str,
+    lang: str,
     settings: Settings,
 ) -> tuple[list[FrameAnalysis], list[PipelineError], list[TokenUsage]]:
     """Analyze extracted frames one-by-one with the vision LLM.
@@ -236,7 +254,7 @@ async def _analyze_frames(
     agent = create_structured_agent(
         FrameAnalysis,
         settings=settings,
-        system_prompt=FRAME_ANALYSIS_PROMPT,
+        system_prompt=_localized_prompt(FRAME_ANALYSIS_PROMPT, lang),
     )
 
     total = len(frames)
@@ -325,6 +343,7 @@ async def _synthesize_summary(
     video_name: str,
     model_name: str,
     user_prompt: str,
+    lang: str,
     settings: Settings,
 ) -> tuple[VideoContentSummary | None, TokenUsage | None, PipelineError | None]:
     """Aggregate per-frame analyses into a single content summary.
@@ -335,7 +354,7 @@ async def _synthesize_summary(
     agent = create_structured_agent(
         VideoContentSummary,
         settings=settings,
-        system_prompt=SYNTHESIS_PROMPT,
+        system_prompt=_localized_prompt(SYNTHESIS_PROMPT, lang),
     )
 
     # Serialize frame analyses to JSON for the text prompt.
