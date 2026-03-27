@@ -23,23 +23,32 @@ ffmpeg -version
 ffprobe -version
 ```
 
-### Project Setup
+### Project Setup (Conda)
 
 ```bash
 # Clone the repository
 git clone https://github.com/yinquan529/yinquan529-VideoAutoCut_PydanticAIAgent.git
 cd yinquan529-VideoAutoCut_PydanticAIAgent
 
-# Create and activate a virtual environment
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux / macOS
-source .venv/bin/activate
+# Create and activate a conda environment
+conda create -n video-autocut python=3.10 -y
+conda activate video-autocut
 
-# Install the package in editable mode with dev dependencies
-pip install -e ".[dev]"
+# Install runtime dependencies
+pip install -r requirements.txt
+
+# Install the package in editable mode
+pip install -e .
+
+# (Optional) Install dev dependencies for testing and linting
+pip install -r requirements-dev.txt
+# Or equivalently:
+# pip install -e ".[dev]"
 ```
+
+> **Tip:** If you prefer a plain virtual environment instead of conda, replace the
+> `conda create` / `conda activate` lines with `python -m venv .venv` and
+> `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Linux/macOS).
 
 ### Configuration
 
@@ -94,52 +103,50 @@ ruff check src/ tests/
 ```
 src/video_autocut/
 ├── app/                    # Application entry point
-│   └── main.py             # CLI startup, settings validation, agent invocation
+│   ├── cli.py              # Typer CLI: generate and chat commands
+│   └── main.py             # CLI startup, settings validation
 ├── agent/                  # PydanticAI agent definitions
-│   └── video_agent.py      # Agent with system prompt for video analysis
+│   └── orchestrator.py     # Agent with typed deps, tool registrations, timeout wrapping
 ├── domain/                 # Pure data layer (no I/O)
 │   ├── enums.py            # ExtractionStrategy, ScriptType, ShotType, SceneType, ErrorCategory
 │   ├── models.py           # Internal models (VideoMetadata, ExtractedFrame, etc.)
 │   └── script_models.py   # LLM-output models (FrameAnalysis, ShootingScript, etc.)
 ├── infrastructure/         # External system integrations
 │   ├── exceptions.py       # FFmpeg error hierarchy
-│   └── ffmpeg.py           # FFmpegTools: subprocess wrapper for ffmpeg/ffprobe
+│   ├── ffmpeg.py           # FFmpegTools: subprocess wrapper for ffmpeg/ffprobe
+│   └── reliability.py      # Correlation IDs, retry with backoff, timeouts, safe cleanup, StepTimer
 ├── tools/                  # Agent-callable tool functions
-│   └── frame_extraction.py # High-level frame extraction facade
+│   ├── frame_extraction.py # High-level frame extraction facade
+│   └── video_analysis.py   # End-to-end video analysis pipeline
 ├── settings.py             # pydantic-settings config with .env support
-└── logging_config.py       # Logging setup
+└── logging_config.py       # Structured logging (text + JSON modes) with run_id correlation
 ```
 
 ### Architecture Layers
 
 ```
 ┌─────────────────────────────────────────────┐
-│  app/main.py                                │
-│  CLI entry point, startup validation        │
+│  app/cli.py                                 │
+│  Typer CLI, correlation IDs, exception map  │
 ├─────────────────────────────────────────────┤
-│  agent/video_agent.py                       │
-│  PydanticAI Agent with system prompt        │
+│  agent/orchestrator.py                      │
+│  PydanticAI Agent[VideoDeps, str]           │
+│  Tool registrations with timeout wrapping   │
 ├─────────────────────────────────────────────┤
-│  tools/frame_extraction.py                  │
-│  Agent-tool-friendly facade                 │
-│  - extract_frames()                         │
-│  - extraction_context()  (auto-cleanup)     │
-│  - cleanup_frames()                         │
-│  - Duplicate-frame detection                │
+│  tools/                                     │
+│  - frame_extraction.py  (facade, dedup)     │
+│  - video_analysis.py    (full pipeline)     │
 ├─────────────────────────────────────────────┤
-│  infrastructure/ffmpeg.py                   │
-│  FFmpegTools class                          │
-│  - validate_video, probe_video              │
-│  - extract_frames (uniform/scene/keyframe)  │
-│  - Single subprocess mock boundary          │
+│  infrastructure/                            │
+│  - ffmpeg.py         (subprocess wrapper)   │
+│  - reliability.py    (retry, timeout, IDs)  │
+│  - exceptions.py     (error hierarchy)      │
 ├─────────────────────────────────────────────┤
 │  domain/                                    │
 │  Pure Pydantic models and enums             │
-│  - Internal models (use Path)               │
-│  - LLM-output models (frozen, str only)     │
 ├─────────────────────────────────────────────┤
-│  settings.py                                │
-│  pydantic-settings with .env file support   │
+│  settings.py + logging_config.py            │
+│  Config (.env) + structured logging         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -182,7 +189,18 @@ with extraction_context("input.mp4", strategy="keyframe") as result:
 
 ### Test Suite
 
-All tests run without real ffmpeg by monkeypatching `_run_command`:
+All tests run without real ffmpeg or LLM calls — subprocess is monkeypatched and HTTP is blocked by an autouse fixture in `conftest.py`.
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ -v --cov=video_autocut --cov-report=term-missing
+
+# Lint
+ruff check src/ tests/
+```
 
 | Test File | Coverage |
 |---|---|
@@ -190,3 +208,10 @@ All tests run without real ffmpeg by monkeypatching `_run_command`:
 | `test_domain_models.py` | Model construction, serialization, enum values, frozen immutability |
 | `test_ffmpeg.py` | Availability checks, video probing, validation, frame extraction, cleanup |
 | `test_frame_extraction_tool.py` | Facade API, strategy dispatch, deduplication, context manager cleanup |
+| `test_hunyuan_client.py` | Hunyuan LLM client integration |
+| `test_script_generator.py` | Script generation and rendering |
+| `test_orchestrator.py` | Agent orchestrator, tool dispatch, deps injection |
+| `test_video_analysis.py` | End-to-end video analysis pipeline |
+| `test_cli.py` | CLI commands, exception mapping, output formatting |
+| `test_agent_integration.py` | PydanticAI TestModel integration, structured output validation, E2E |
+| `test_reliability.py` | Correlation IDs, retry, timeouts, cleanup, StepTimer, logging formatters |
