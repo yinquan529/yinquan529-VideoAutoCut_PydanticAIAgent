@@ -32,6 +32,7 @@ Design choices
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from typing import TypeVar
 
@@ -130,6 +131,26 @@ def create_agent(
     )
 
 
+def _build_structured_prompt(system_prompt: str, output_type: type[BaseModel]) -> str:
+    """Merge JSON-schema instructions into *system_prompt* so only one system message is sent.
+
+    Hunyuan requires all system messages to appear at the very beginning of the
+    message list **and** only accepts a single system message.  PydanticAI's
+    ``PromptedOutput`` normally injects a second system message with the schema,
+    which Hunyuan rejects.  We work around this by embedding the schema
+    instructions directly in the caller's system prompt and passing
+    ``template=False`` to suppress the extra message.
+    """
+    schema = output_type.model_json_schema()
+    schema_json = _json.dumps(schema, ensure_ascii=False)
+    return (
+        f"{system_prompt}\n\n"
+        f"Always respond with a JSON object that's compatible with this schema:\n\n"
+        f"{schema_json}\n\n"
+        f"Don't include any text or Markdown fencing before or after."
+    )
+
+
 def create_structured_agent(
     output_type: type[OutputT],
     settings: Settings | None = None,
@@ -140,14 +161,13 @@ def create_structured_agent(
     Use this when you need the LLM to return a typed object — for example
     a ``FrameAnalysis`` or ``ShootingScript``.
 
-    Uses ``PromptedOutput`` so the schema is conveyed via system prompt
-    rather than ``tool_choice``, which some OpenAI-compatible APIs
-    (e.g. Tencent Hunyuan) do not support.
+    Uses ``PromptedOutput(template=False)`` with JSON-schema instructions
+    merged into the system prompt.  This avoids both the ``tool_choice``
+    parameter and the extra system message that Hunyuan rejects.
 
     Args:
         output_type: A Pydantic ``BaseModel`` subclass.  PydanticAI will
-            instruct the model to return JSON matching this schema and
-            validate the response automatically.
+            parse and validate the model's text response as JSON.
         settings: Explicit settings.  Defaults to :func:`get_settings`.
         system_prompt: System-level instructions for the agent.
 
@@ -155,9 +175,10 @@ def create_structured_agent(
         A typed ``Agent[None, OutputT]``.
     """
     model = create_model(settings)
+    merged_prompt = _build_structured_prompt(system_prompt, output_type)
     return Agent(
         model,
-        output_type=PromptedOutput(output_type),
-        system_prompt=system_prompt,
+        output_type=PromptedOutput(output_type, template=False),
+        system_prompt=merged_prompt,
         retries=settings.max_retries if settings else get_settings().max_retries,
     )
