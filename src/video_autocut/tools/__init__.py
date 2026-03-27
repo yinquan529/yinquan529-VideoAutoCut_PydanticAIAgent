@@ -5,6 +5,8 @@ from video_autocut.tools.frame_extraction import (
     extract_frames,
     extraction_context,
 )
+from video_autocut.tools.script_generator import generate_script
+from video_autocut.tools.script_renderer import render_script
 from video_autocut.tools.video_analysis import analyze_video
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "cleanup_frames",
     "extract_frames",
     "extraction_context",
+    "generate_script",
+    "render_script",
 ]

@@ -10,8 +10,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from video_autocut.domain.models import PipelineError, PipelineRunStats
-from video_autocut.domain.script_models import FrameAnalysis, VideoContentSummary
+from video_autocut.domain.models import PipelineError, PipelineRunStats, TokenUsage
+from video_autocut.domain.script_models import (
+    FrameAnalysis,
+    ShootingScript,
+    VideoContentSummary,
+)
 
 
 class VideoAnalysisResult(BaseModel):
@@ -43,4 +47,23 @@ class VideoAnalysisResult(BaseModel):
     errors: list[PipelineError] = Field(
         default_factory=list,
         description="Errors encountered during extraction, analysis, or synthesis",
+    )
+
+
+class ScriptGenerationResult(BaseModel):
+    """Output of the shooting-script generation step."""
+
+    model_config = ConfigDict(frozen=True)
+
+    script: ShootingScript | None = Field(
+        default=None,
+        description="The generated shooting script, or None on failure",
+    )
+    token_usage: TokenUsage | None = Field(
+        default=None,
+        description="Token consumption and timing for the LLM call",
+    )
+    error: PipelineError | None = Field(
+        default=None,
+        description="Error details if generation failed",
     )
