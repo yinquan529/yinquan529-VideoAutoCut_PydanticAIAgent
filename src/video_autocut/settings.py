@@ -79,7 +79,7 @@ class Settings(BaseSettings):
         description="Maximum retries for LLM API calls",
     )
     request_timeout_seconds: int = Field(
-        default=60,
+        default=120,
         ge=5,
         le=600,
         description="Timeout for a single LLM API call in seconds",

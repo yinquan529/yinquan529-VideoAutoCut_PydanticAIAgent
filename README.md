@@ -75,7 +75,7 @@ TEMP_FRAMES_DIR=.video_autocut/frames
 OUTPUT_DIR=.video_autocut/output
 LOG_LEVEL=INFO
 MAX_RETRIES=3
-REQUEST_TIMEOUT_SECONDS=60
+REQUEST_TIMEOUT_SECONDS=120
 ```
 
 ### Running

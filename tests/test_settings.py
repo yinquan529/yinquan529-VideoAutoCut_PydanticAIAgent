@@ -47,7 +47,7 @@ class TestDefaults:
         assert settings.output_dir == Path(".video_autocut/output")
         assert settings.log_level == "INFO"
         assert settings.max_retries == 3
-        assert settings.request_timeout_seconds == 60
+        assert settings.request_timeout_seconds == 120
 
 
 # ---------------------------------------------------------------------------
