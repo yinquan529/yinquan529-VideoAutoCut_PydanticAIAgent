@@ -17,6 +17,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+from helpers import make_settings
 from video_autocut.app.cli import (
     OutputFormat,
     _build_output_path,
@@ -37,37 +38,8 @@ from video_autocut.domain.script_models import (
     ShotDefinition,
     VideoContentSummary,
 )
-from video_autocut.settings import Settings, get_settings
 
 runner = CliRunner()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_settings(**overrides) -> Settings:
-    defaults = dict(
-        hunyuan_api_key="test-key",
-        hunyuan_base_url="http://localhost",
-        model_name="openai:test-model",
-        ffmpeg_path=Path("ffmpeg"),
-        ffprobe_path=Path("ffprobe"),
-        temp_frames_dir=Path("/tmp/test_frames"),
-        output_dir=Path("/tmp/test_output"),
-        max_retries=0,
-        request_timeout_seconds=10,
-    )
-    defaults.update(overrides)
-    return Settings(**defaults)
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +127,7 @@ SAMPLE_GEN_RESULT = ScriptGenerationResult(
 def _patch_settings():
     return patch(
         "video_autocut.app.cli.validate_settings",
-        return_value=_make_settings(),
+        return_value=make_settings(),
     )
 
 

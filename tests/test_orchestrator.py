@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from helpers import make_settings
 from video_autocut.domain.enums import (
     ErrorCategory,
     ExtractionStrategy,
@@ -43,40 +44,17 @@ from video_autocut.domain.script_models import (
 )
 from video_autocut.infrastructure.exceptions import VideoProbeError
 from video_autocut.infrastructure.ffmpeg import FFmpegTools
-from video_autocut.settings import Settings, get_settings
+from video_autocut.settings import Settings
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_settings(**overrides) -> Settings:
-    defaults = dict(
-        hunyuan_api_key="test-key",
-        hunyuan_base_url="http://localhost",
-        model_name="openai:test-model",
-        ffmpeg_path=Path("ffmpeg"),
-        ffprobe_path=Path("ffprobe"),
-        temp_frames_dir=Path("/tmp/test_frames"),
-        output_dir=Path("/tmp/test_output"),
-        max_retries=0,
-        request_timeout_seconds=10,
-    )
-    defaults.update(overrides)
-    return Settings(**defaults)
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 def _make_deps(settings: Settings | None = None):
     from video_autocut.agent.orchestrator import VideoDeps
 
-    s = settings or _make_settings()
+    s = settings or make_settings()
     return VideoDeps(settings=s, ffmpeg=MagicMock(spec=FFmpegTools))
 
 
@@ -206,7 +184,7 @@ class TestVideoDeps:
     def test_construction(self):
         from video_autocut.agent.orchestrator import VideoDeps
 
-        s = _make_settings()
+        s = make_settings()
         ffmpeg = FFmpegTools()
         deps = VideoDeps(settings=s, ffmpeg=ffmpeg)
         assert deps.settings is s
@@ -224,14 +202,14 @@ class TestCreateOrchestrator:
 
         from video_autocut.agent.orchestrator import create_orchestrator
 
-        settings = _make_settings()
+        settings = make_settings()
         agent = create_orchestrator(settings)
         assert isinstance(agent, Agent)
 
     def test_default_settings(self, monkeypatch: pytest.MonkeyPatch):
         from video_autocut.agent.orchestrator import create_orchestrator
 
-        settings = _make_settings()
+        settings = make_settings()
         monkeypatch.setattr(
             "video_autocut.agent.orchestrator.get_settings",
             lambda: settings,
@@ -243,7 +221,7 @@ class TestCreateOrchestrator:
     def test_has_five_tools(self):
         from video_autocut.agent.orchestrator import create_orchestrator
 
-        settings = _make_settings()
+        settings = make_settings()
         agent = create_orchestrator(settings)
         toolset = agent._function_toolset
         assert len(toolset.tools) == 5
@@ -723,7 +701,7 @@ class TestRunAgent:
     async def test_convenience_runner(self, monkeypatch: pytest.MonkeyPatch):
         from video_autocut.agent.orchestrator import run_agent
 
-        settings = _make_settings()
+        settings = make_settings()
         monkeypatch.setattr(
             "video_autocut.agent.orchestrator.get_settings",
             lambda: settings,

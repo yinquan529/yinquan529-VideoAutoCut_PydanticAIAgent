@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
+from helpers import make_settings
 from video_autocut.domain.enums import ExtractionStrategy
 from video_autocut.domain.models import ExtractedFrame
 from video_autocut.settings import Settings
@@ -59,32 +60,10 @@ def _completed(
     )
 
 
-def _make_settings(tmp_path: Path) -> Settings:
-    """Create a Settings instance with tmp_path-based directories."""
-    return Settings(
-        hunyuan_api_key="test-key",
-        hunyuan_base_url="http://localhost",
-        ffmpeg_path=Path("ffmpeg"),
-        ffprobe_path=Path("ffprobe"),
-        temp_frames_dir=tmp_path / "frames",
-        output_dir=tmp_path / "output",
-    )
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    """Ensure get_settings cache is cleared between tests."""
-    from video_autocut.settings import get_settings
-
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 @pytest.fixture()
 def mock_settings(tmp_path: Path):
     """Patch get_settings to return tmp_path-based settings."""
-    settings = _make_settings(tmp_path)
+    settings = make_settings(temp_frames_dir=tmp_path / "frames", output_dir=tmp_path / "output")
 
     @lru_cache
     def fake_get_settings() -> Settings:
