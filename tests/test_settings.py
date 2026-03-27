@@ -22,14 +22,6 @@ REQUIRED_ENV = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    """Ensure every test gets a fresh Settings singleton."""
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 @pytest.fixture()
 def _set_required_env(monkeypatch: pytest.MonkeyPatch):
     for key, val in REQUIRED_ENV.items():

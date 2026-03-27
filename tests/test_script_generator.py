@@ -8,11 +8,11 @@ No real LLM calls are made.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from helpers import make_settings
 from video_autocut.domain.enums import (
     SceneType,
     ScriptType,
@@ -33,7 +33,6 @@ from video_autocut.domain.script_models import (
     ShotDefinition,
     VideoContentSummary,
 )
-from video_autocut.settings import Settings, get_settings
 from video_autocut.tools.script_generator import (
     _build_system_prompt,
     _build_user_prompt,
@@ -52,29 +51,6 @@ from video_autocut.tools.script_renderer import (
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-
-def _make_settings(**overrides) -> Settings:
-    defaults = dict(
-        hunyuan_api_key="test-key",
-        hunyuan_base_url="http://localhost",
-        model_name="openai:test-model",
-        ffmpeg_path=Path("ffmpeg"),
-        ffprobe_path=Path("ffprobe"),
-        temp_frames_dir=Path("/tmp/test_frames"),
-        output_dir=Path("/tmp/test_output"),
-        max_retries=0,
-        request_timeout_seconds=10,
-    )
-    defaults.update(overrides)
-    return Settings(**defaults)
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 SAMPLE_FRAME_ANALYSIS = FrameAnalysis(
@@ -200,7 +176,7 @@ class TestGenerateScript:
         )
 
     async def test_happy_path(self):
-        settings = _make_settings()
+        settings = make_settings()
         with self._patch_agent(SAMPLE_SCRIPT):
             result = await generate_script(
                 SAMPLE_ANALYSIS,
@@ -216,7 +192,7 @@ class TestGenerateScript:
         assert result.token_usage.step_name == "script_generation"
 
     async def test_token_usage_captured(self):
-        settings = _make_settings()
+        settings = make_settings()
         with self._patch_agent(SAMPLE_SCRIPT):
             result = await generate_script(
                 SAMPLE_ANALYSIS, settings=settings,
@@ -227,7 +203,7 @@ class TestGenerateScript:
         assert result.token_usage.model_name == "test-model"
 
     async def test_error_collected(self):
-        settings = _make_settings()
+        settings = make_settings()
         with self._patch_agent(RuntimeError("LLM timeout")):
             result = await generate_script(
                 SAMPLE_ANALYSIS, settings=settings,
@@ -238,7 +214,7 @@ class TestGenerateScript:
         assert "Script generation failed" in result.error.message
 
     async def test_string_script_type(self):
-        settings = _make_settings()
+        settings = make_settings()
         with self._patch_agent(SAMPLE_SCRIPT):
             result = await generate_script(
                 SAMPLE_ANALYSIS,
@@ -248,7 +224,7 @@ class TestGenerateScript:
         assert result.script is not None
 
     async def test_enum_script_type(self):
-        settings = _make_settings()
+        settings = make_settings()
         with self._patch_agent(SAMPLE_SCRIPT):
             result = await generate_script(
                 SAMPLE_ANALYSIS,
@@ -258,7 +234,7 @@ class TestGenerateScript:
         assert result.script is not None
 
     async def test_invalid_script_type_raises(self):
-        settings = _make_settings()
+        settings = make_settings()
         with pytest.raises(ValueError):
             await generate_script(
                 SAMPLE_ANALYSIS,
@@ -267,7 +243,7 @@ class TestGenerateScript:
             )
 
     async def test_default_settings(self, monkeypatch: pytest.MonkeyPatch):
-        settings = _make_settings()
+        settings = make_settings()
         monkeypatch.setattr(
             "video_autocut.tools.script_generator.get_settings",
             lambda: settings,
@@ -278,7 +254,7 @@ class TestGenerateScript:
 
     async def test_all_creative_params(self):
         """Verify audience, style, emphasis are passed to the prompt."""
-        settings = _make_settings()
+        settings = make_settings()
         prompts_received = []
 
         class CapturingAgent:

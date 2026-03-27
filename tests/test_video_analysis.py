@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from helpers import make_settings
 from video_autocut.domain.enums import (
     ErrorCategory,
     ExtractionStrategy,
@@ -33,7 +34,6 @@ from video_autocut.domain.script_models import (
     KeyMoment,
     VideoContentSummary,
 )
-from video_autocut.settings import Settings, get_settings
 from video_autocut.tools.video_analysis import (
     FRAME_ANALYSIS_PROMPT,
     SYNTHESIS_PROMPT,
@@ -43,29 +43,6 @@ from video_autocut.tools.video_analysis import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_settings(**overrides) -> Settings:
-    defaults = dict(
-        hunyuan_api_key="test-key",
-        hunyuan_base_url="http://localhost",
-        model_name="openai:test-model",
-        ffmpeg_path=Path("ffmpeg"),
-        ffprobe_path=Path("ffprobe"),
-        temp_frames_dir=Path("/tmp/test_frames"),
-        output_dir=Path("/tmp/test_output"),
-        max_retries=0,
-        request_timeout_seconds=10,
-    )
-    defaults.update(overrides)
-    return Settings(**defaults)
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 def _make_frame_files(tmp_path: Path, count: int) -> list[ExtractedFrame]:
@@ -198,7 +175,7 @@ class TestAnalyzeVideo:
 
     async def test_basic_happy_path(self, tmp_path: Path):
         frames = _make_frame_files(tmp_path, 2)
-        settings = _make_settings()
+        settings = make_settings()
 
         with (
             self._patch_extract(frames),
@@ -223,7 +200,7 @@ class TestAnalyzeVideo:
 
     async def test_token_usage_tracked(self, tmp_path: Path):
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
 
         with (
             self._patch_extract(frames),
@@ -244,7 +221,7 @@ class TestAnalyzeVideo:
     async def test_frame_analysis_error_collected(self, tmp_path: Path):
         """One frame fails, the other succeeds — partial results returned."""
         frames = _make_frame_files(tmp_path, 2)
-        settings = _make_settings()
+        settings = make_settings()
 
         # Frame agent: first call succeeds, second raises
         agents_created = []
@@ -289,7 +266,7 @@ class TestAnalyzeVideo:
     async def test_synthesis_error_collected(self, tmp_path: Path):
         """Synthesis fails — frame analyses still returned, summary is None."""
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
 
         def fake_create(output_type, **kwargs):
             if output_type is FrameAnalysis:
@@ -315,7 +292,7 @@ class TestAnalyzeVideo:
 
     async def test_no_frames_extracted(self, tmp_path: Path):
         """No frames extracted — appropriate error, no LLM calls."""
-        settings = _make_settings()
+        settings = make_settings()
 
         with (
             self._patch_extract(frames=[]),
@@ -336,7 +313,7 @@ class TestAnalyzeVideo:
 
     async def test_cleanup_runs_on_success(self, tmp_path: Path):
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
         cleanup_mock = MagicMock(return_value=1)
 
         with (
@@ -354,7 +331,7 @@ class TestAnalyzeVideo:
     async def test_cleanup_runs_on_error(self, tmp_path: Path):
         """Cleanup still runs even if frame analysis raises unexpectedly."""
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
         cleanup_mock = MagicMock(return_value=1)
 
         def fake_create(output_type, **kwargs):
@@ -383,7 +360,7 @@ class TestAnalyzeVideo:
 
     async def test_strategy_passed_through(self, tmp_path: Path):
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
         extract_mock = MagicMock(return_value=FrameExtractionResult(
             video_name="test.mp4",
             strategy=ExtractionStrategy.SCENE_CHANGE,
@@ -412,7 +389,7 @@ class TestAnalyzeVideo:
     async def test_custom_user_prompt(self, tmp_path: Path):
         """User prompt is passed through to frame analysis."""
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
 
         prompts_received = []
 
@@ -459,7 +436,7 @@ class TestAnalyzeVideo:
 
     async def test_settings_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """When settings=None, uses get_settings()."""
-        settings = _make_settings()
+        settings = make_settings()
         monkeypatch.setattr(
             "video_autocut.tools.video_analysis.get_settings",
             lambda: settings,
@@ -477,7 +454,7 @@ class TestAnalyzeVideo:
     async def test_extraction_errors_propagated(self, tmp_path: Path):
         """Extraction errors from extract_frames are included in final result."""
         frames = _make_frame_files(tmp_path, 1)
-        settings = _make_settings()
+        settings = make_settings()
         extraction_error = PipelineError(
             category=ErrorCategory.FRAME_EXTRACTION,
             message="Frame 3 failed to extract",
