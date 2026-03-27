@@ -20,7 +20,7 @@ async def async_main() -> None:
     setup_logging(settings.log_level)
     logger.info("VideoAutoCut starting (model=%s)", settings.model_name)
 
-    agent = create_agent(settings.model_name)
+    agent = create_agent(settings)
     result = await agent.run("Hello! What can you help me with?")
     print(result.output)  # noqa: T201
 
