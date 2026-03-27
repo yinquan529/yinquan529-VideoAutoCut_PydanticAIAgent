@@ -39,6 +39,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.output import PromptedOutput
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from video_autocut.settings import Settings, get_settings
@@ -139,6 +140,10 @@ def create_structured_agent(
     Use this when you need the LLM to return a typed object — for example
     a ``FrameAnalysis`` or ``ShootingScript``.
 
+    Uses ``PromptedOutput`` so the schema is conveyed via system prompt
+    rather than ``tool_choice``, which some OpenAI-compatible APIs
+    (e.g. Tencent Hunyuan) do not support.
+
     Args:
         output_type: A Pydantic ``BaseModel`` subclass.  PydanticAI will
             instruct the model to return JSON matching this schema and
@@ -152,7 +157,7 @@ def create_structured_agent(
     model = create_model(settings)
     return Agent(
         model,
-        output_type=output_type,
+        output_type=PromptedOutput(output_type),
         system_prompt=system_prompt,
         retries=settings.max_retries if settings else get_settings().max_retries,
     )

@@ -132,10 +132,16 @@ class TestOrchestratorWithTestModel:
 
 
 class TestStructuredAgentWithTestModel:
-    """Verify structured-output agents work with TestModel's custom_output_args."""
+    """Verify structured-output agents work with TestModel via PromptedOutput (text-based).
+
+    Because ``create_structured_agent`` uses ``PromptedOutput`` (to avoid
+    ``tool_choice`` which Hunyuan rejects), the model returns JSON as plain
+    text.  We use ``custom_output_text`` with JSON strings rather than
+    ``custom_output_args``.
+    """
 
     async def test_frame_analysis_output(self):
-        args = {
+        text = json.dumps({
             "frame_path": "frame_0000.jpg",
             "timestamp_seconds": 1.5,
             "description": "A sunset over the ocean.",
@@ -143,21 +149,21 @@ class TestStructuredAgentWithTestModel:
             "scene_type": "exterior",
             "visual_mood": "warm",
             "dominant_colors": ["orange", "blue"],
-        }
+        })
         settings = make_settings()
         agent = create_structured_agent(
             FrameAnalysis,
             settings,
             system_prompt="Analyze this frame.",
         )
-        agent.model = TestModel(custom_output_args=args)
+        agent.model = TestModel(custom_output_text=text)
         result = await agent.run("Describe the image.")
         assert isinstance(result.output, FrameAnalysis)
         assert result.output.description == "A sunset over the ocean."
         assert result.output.scene_type == SceneType.EXTERIOR
 
     async def test_shooting_script_output(self):
-        args = {
+        text = json.dumps({
             "title": "Test Script",
             "script_type": "documentary",
             "target_duration_seconds": 60.0,
@@ -166,14 +172,14 @@ class TestStructuredAgentWithTestModel:
             "narration_cues": [],
             "music_cues": [],
             "production_notes": "none",
-        }
+        })
         settings = make_settings()
         agent = create_structured_agent(
             ShootingScript,
             settings,
             system_prompt="Generate a script.",
         )
-        agent.model = TestModel(custom_output_args=args)
+        agent.model = TestModel(custom_output_text=text)
         result = await agent.run("Generate.")
         assert isinstance(result.output, ShootingScript)
         assert result.output.title == "Test Script"
@@ -181,21 +187,21 @@ class TestStructuredAgentWithTestModel:
         assert result.output.scenes == []
 
     async def test_video_content_summary_output(self):
-        args = {
+        text = json.dumps({
             "overall_summary": "Cityscape footage.",
             "themes": ["urban"],
             "visual_style": "handheld",
             "pacing": "fast",
             "key_moments": [],
             "estimated_tone": "energetic",
-        }
+        })
         settings = make_settings()
         agent = create_structured_agent(
             VideoContentSummary,
             settings,
             system_prompt="Summarize.",
         )
-        agent.model = TestModel(custom_output_args=args)
+        agent.model = TestModel(custom_output_text=text)
         result = await agent.run("Summarize.")
         assert isinstance(result.output, VideoContentSummary)
         assert result.output.overall_summary == "Cityscape footage."
