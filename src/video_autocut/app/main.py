@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from video_autocut.agent.video_agent import create_agent
+from video_autocut.agent.orchestrator import VideoDeps, create_orchestrator
+from video_autocut.infrastructure.ffmpeg import FFmpegTools
 from video_autocut.logging_config import setup_logging
 from video_autocut.settings import SettingsValidationError, validate_settings
 
@@ -20,8 +21,15 @@ async def async_main() -> None:
     setup_logging(settings.log_level)
     logger.info("VideoAutoCut starting (model=%s)", settings.model_name)
 
-    agent = create_agent(settings)
-    result = await agent.run("Hello! What can you help me with?")
+    agent = create_orchestrator(settings)
+    deps = VideoDeps(
+        settings=settings,
+        ffmpeg=FFmpegTools(settings.ffmpeg_path, settings.ffprobe_path),
+    )
+    result = await agent.run(
+        "Hello! What can you help me with?",
+        deps=deps,
+    )
     print(result.output)  # noqa: T201
 
 
