@@ -24,11 +24,15 @@ from video_autocut.agent.hunyuan_client import create_model, create_structured_a
 from video_autocut.domain.script_models import FrameAnalysis
 from video_autocut.infrastructure.exceptions import FFmpegError
 from video_autocut.infrastructure.ffmpeg import FFmpegTools
+from video_autocut.infrastructure.reliability import with_timeout
 from video_autocut.settings import Settings, get_settings
 from video_autocut.tools.frame_extraction import extract_frames
 from video_autocut.tools.script_generator import generate_script
 from video_autocut.tools.script_renderer import render_script
 from video_autocut.tools.video_analysis import analyze_video
+
+# Default timeout for long-running tool calls (seconds).
+_TOOL_TIMEOUT = 300
 
 logger = logging.getLogger(__name__)
 
@@ -171,12 +175,16 @@ async def analyze_video_content(
         focus: Optional focus hint (e.g. 'concentrate on outdoor scenes').
     """
     try:
-        result = await analyze_video(
-            video_path,
-            strategy=strategy,
-            max_frames=max_frames,
-            user_prompt=focus,
-            settings=ctx.deps.settings,
+        result = await with_timeout(
+            analyze_video(
+                video_path,
+                strategy=strategy,
+                max_frames=max_frames,
+                user_prompt=focus,
+                settings=ctx.deps.settings,
+            ),
+            seconds=_TOOL_TIMEOUT,
+            label="analyze_video_content",
         )
     except Exception as exc:
         return f"Video analysis failed: {exc}"
@@ -237,9 +245,10 @@ async def generate_video_script(
     """
     # Phase 1: analyse
     try:
-        analysis = await analyze_video(
-            video_path,
-            settings=ctx.deps.settings,
+        analysis = await with_timeout(
+            analyze_video(video_path, settings=ctx.deps.settings),
+            seconds=_TOOL_TIMEOUT,
+            label="generate_script.analyze",
         )
     except Exception as exc:
         return f"Video analysis failed: {exc}"
@@ -252,14 +261,18 @@ async def generate_video_script(
 
     # Phase 2: generate script
     try:
-        gen_result = await generate_script(
-            analysis,
-            script_type=script_type,
-            target_duration=target_duration,
-            target_audience=target_audience,
-            style=style,
-            emphasis=emphasis,
-            settings=ctx.deps.settings,
+        gen_result = await with_timeout(
+            generate_script(
+                analysis,
+                script_type=script_type,
+                target_duration=target_duration,
+                target_audience=target_audience,
+                style=style,
+                emphasis=emphasis,
+                settings=ctx.deps.settings,
+            ),
+            seconds=_TOOL_TIMEOUT,
+            label="generate_script.generate",
         )
     except Exception as exc:
         return f"Script generation failed: {exc}"

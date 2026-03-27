@@ -147,7 +147,7 @@ class TestAnalyzeVideo:
 
     def _patch_cleanup(self):
         return patch(
-            "video_autocut.tools.video_analysis.cleanup_frames",
+            "video_autocut.tools.video_analysis.safe_cleanup_frames",
             return_value=0,
         )
 
@@ -319,7 +319,7 @@ class TestAnalyzeVideo:
         with (
             self._patch_extract(frames),
             patch(
-                "video_autocut.tools.video_analysis.cleanup_frames",
+                "video_autocut.tools.video_analysis.safe_cleanup_frames",
                 cleanup_mock,
             ),
             self._patch_agent(SAMPLE_FRAME_ANALYSIS, SAMPLE_SUMMARY),
@@ -341,7 +341,7 @@ class TestAnalyzeVideo:
         with (
             self._patch_extract(frames),
             patch(
-                "video_autocut.tools.video_analysis.cleanup_frames",
+                "video_autocut.tools.video_analysis.safe_cleanup_frames",
                 cleanup_mock,
             ),
             patch(
