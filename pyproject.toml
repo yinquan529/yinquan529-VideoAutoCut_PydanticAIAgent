@@ -13,6 +13,8 @@ dependencies = [
     "pydantic-ai>=0.0.70",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
+    "typer>=0.12",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
