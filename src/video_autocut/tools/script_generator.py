@@ -168,6 +168,20 @@ def _build_user_prompt(
 # ---------------------------------------------------------------------------
 
 
+_LANG_INSTRUCTIONS: dict[str, str] = {
+    "en": "You MUST write all output text in English.",
+    "zh": "你必须用中文撰写所有输出内容。",
+}
+
+
+def _localized_prompt(prompt: str, lang: str) -> str:
+    """Append a language instruction to *prompt* if applicable."""
+    instruction = _LANG_INSTRUCTIONS.get(lang, "")
+    if instruction:
+        return f"{prompt}\n\n{instruction}"
+    return prompt
+
+
 async def generate_script(
     analysis: VideoAnalysisResult,
     *,
@@ -176,6 +190,7 @@ async def generate_script(
     target_audience: str = "",
     style: str = "",
     emphasis: str = "",
+    lang: str = "en",
     settings: Settings | None = None,
 ) -> ScriptGenerationResult:
     """Generate a shooting script from a video analysis result.
@@ -191,6 +206,7 @@ async def generate_script(
         style: Visual/editorial style guidance (e.g. ``"minimalist"``).
         emphasis: Optional user note to steer the LLM
             (e.g. ``"focus on the cooking scenes"``).
+        lang: Output language code (``"en"`` or ``"zh"``).
         settings: Explicit settings.  Defaults to :func:`get_settings`.
 
     Returns:
@@ -207,7 +223,7 @@ async def generate_script(
     if ":" in model_name:
         model_name = model_name.split(":", 1)[1]
 
-    system_prompt = _build_system_prompt(script_type)
+    system_prompt = _localized_prompt(_build_system_prompt(script_type), lang)
     user_prompt = _build_user_prompt(
         analysis, script_type, target_duration,
         target_audience, style, emphasis,

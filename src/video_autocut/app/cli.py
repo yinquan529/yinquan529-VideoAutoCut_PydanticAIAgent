@@ -80,6 +80,13 @@ class OutputFormat(str, Enum):
     txt = "txt"
 
 
+class Language(str, Enum):
+    """Supported output languages."""
+
+    en = "en"
+    zh = "zh"
+
+
 def _validate_video_path(path: Path) -> Path:
     """Ensure the file exists and has a supported video extension."""
     if not path.exists():
@@ -191,6 +198,11 @@ def generate(
         "--strategy",
         help="Frame extraction strategy: uniform, scene_change, keyframe.",
     ),
+    lang: Language = typer.Option(
+        Language.en,
+        "--lang", "-l",
+        help="Output language: en (English), zh (Chinese).",
+    ),
 ) -> None:
     """Analyse a video and generate a shooting script.
 
@@ -212,6 +224,7 @@ def generate(
 
     console.print(f"[bold]Video:[/bold]  {video}")
     console.print(f"[bold]Type:[/bold]   {script_type}")
+    console.print(f"[bold]Lang:[/bold]   {lang.value}")
     if duration > 0:
         console.print(f"[bold]Duration:[/bold] {duration:.0f}s")
     console.print(f"[dim]Run ID:[/dim]  {run_id}")
@@ -231,6 +244,7 @@ def generate(
             fmt=fmt,
             max_frames=max_frames,
             strategy=strategy,
+            lang=lang.value,
             settings=settings,
         )
     )
@@ -248,6 +262,7 @@ async def _run_generate(
     fmt: OutputFormat,
     max_frames: int,
     strategy: str,
+    lang: str,
     settings,
 ) -> None:
     """Async implementation of the generate pipeline."""
@@ -261,6 +276,7 @@ async def _run_generate(
                 strategy=strategy,
                 max_frames=max_frames,
                 user_prompt=prompt,
+                lang=lang,
                 settings=settings,
             )
     except (VideoValidationError, VideoProbeError) as exc:
@@ -309,6 +325,7 @@ async def _run_generate(
                 target_audience=audience,
                 style=style,
                 emphasis=prompt,
+                lang=lang,
                 settings=settings,
             )
     except asyncio.TimeoutError as exc:
