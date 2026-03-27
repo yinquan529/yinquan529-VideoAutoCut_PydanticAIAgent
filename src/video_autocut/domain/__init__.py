@@ -14,7 +14,7 @@ from video_autocut.domain.models import (
     TokenUsage,
     VideoMetadata,
 )
-from video_autocut.domain.results import VideoAnalysisResult
+from video_autocut.domain.results import ScriptGenerationResult, VideoAnalysisResult
 from video_autocut.domain.script_models import (
     FrameAnalysis,
     KeyMoment,
@@ -47,6 +47,7 @@ __all__ = [
     "MusicCue",
     "NarrationCue",
     "SceneDefinition",
+    "ScriptGenerationResult",
     "ShootingScript",
     "ShotDefinition",
     "VideoAnalysisResult",
