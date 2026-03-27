@@ -25,8 +25,8 @@ of ``md``, ``json``, or ``txt``.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
-import time
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -35,7 +35,19 @@ import typer
 from rich.console import Console
 
 from video_autocut.agent.orchestrator import VideoDeps, create_orchestrator
+from video_autocut.infrastructure.exceptions import (
+    FFmpegNotFoundError,
+    FrameExtractionError,
+    VideoProbeError,
+    VideoValidationError,
+)
 from video_autocut.infrastructure.ffmpeg import VALID_VIDEO_EXTENSIONS, FFmpegTools
+from video_autocut.infrastructure.reliability import (
+    StepTimer,
+    get_run_id,
+    new_run_id,
+)
+from video_autocut.logging_config import setup_logging
 from video_autocut.settings import (
     SettingsValidationError,
     validate_settings,
@@ -43,6 +55,8 @@ from video_autocut.settings import (
 from video_autocut.tools.script_generator import generate_script
 from video_autocut.tools.script_renderer import render_script
 from video_autocut.tools.video_analysis import analyze_video
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="video-autocut",
@@ -190,6 +204,8 @@ def generate(
     video = _validate_video_path(video)
 
     settings = _init_settings()
+    run_id = new_run_id()
+    setup_logging(settings.log_level)
 
     if output_dir is None:
         output_dir = settings.output_dir
@@ -198,7 +214,10 @@ def generate(
     console.print(f"[bold]Type:[/bold]   {script_type}")
     if duration > 0:
         console.print(f"[bold]Duration:[/bold] {duration:.0f}s")
+    console.print(f"[dim]Run ID:[/dim]  {run_id}")
     console.print()
+
+    logger.info("generate start video=%s type=%s frames=%d", video.name, script_type, max_frames)
 
     asyncio.run(
         _run_generate(
@@ -234,24 +253,40 @@ async def _run_generate(
     """Async implementation of the generate pipeline."""
     # Phase 1: analyse video
     console.print("[cyan]Analysing video...[/cyan]")
-    t0 = time.monotonic()
 
     try:
-        analysis = await analyze_video(
-            video,
-            strategy=strategy,
-            max_frames=max_frames,
-            user_prompt=prompt,
-            settings=settings,
+        with StepTimer("video_analysis") as t_analysis:
+            analysis = await analyze_video(
+                video,
+                strategy=strategy,
+                max_frames=max_frames,
+                user_prompt=prompt,
+                settings=settings,
+            )
+    except (VideoValidationError, VideoProbeError) as exc:
+        console.print(f"[red]Video error:[/red] {exc}")
+        console.print("[dim]Check that the file is a valid video and ffmpeg is installed.[/dim]")
+        raise typer.Exit(1) from exc
+    except FFmpegNotFoundError:
+        console.print(
+            "[red]ffmpeg not found.[/red]\n"
+            "[dim]Install ffmpeg and ensure it is on your PATH.[/dim]"
         )
+        raise typer.Exit(1)
+    except FrameExtractionError as exc:
+        console.print(f"[red]Frame extraction failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    except asyncio.TimeoutError as exc:
+        console.print(f"[red]Timed out:[/red] {exc}")
+        raise typer.Exit(1) from exc
     except Exception as exc:
+        logger.error("Unexpected analysis error: %s", exc, exc_info=True)
         console.print(f"[red]Analysis failed:[/red] {exc}")
         raise typer.Exit(1) from exc
 
-    analysis_secs = time.monotonic() - t0
     console.print(
         f"  Frames analysed: {analysis.stats.frames_analyzed} "
-        f"in {analysis_secs:.1f}s"
+        f"in {t_analysis.elapsed:.1f}s"
     )
 
     if analysis.errors:
@@ -264,23 +299,25 @@ async def _run_generate(
 
     # Phase 2: generate script
     console.print("[cyan]Generating script...[/cyan]")
-    t1 = time.monotonic()
 
     try:
-        gen_result = await generate_script(
-            analysis,
-            script_type=script_type,
-            target_duration=duration,
-            target_audience=audience,
-            style=style,
-            emphasis=prompt,
-            settings=settings,
-        )
+        with StepTimer("script_generation") as t_gen:
+            gen_result = await generate_script(
+                analysis,
+                script_type=script_type,
+                target_duration=duration,
+                target_audience=audience,
+                style=style,
+                emphasis=prompt,
+                settings=settings,
+            )
+    except asyncio.TimeoutError as exc:
+        console.print(f"[red]Timed out:[/red] {exc}")
+        raise typer.Exit(1) from exc
     except Exception as exc:
+        logger.error("Unexpected generation error: %s", exc, exc_info=True)
         console.print(f"[red]Script generation failed:[/red] {exc}")
         raise typer.Exit(1) from exc
-
-    gen_secs = time.monotonic() - t1
 
     if gen_result.error:
         console.print(
@@ -292,7 +329,7 @@ async def _run_generate(
         console.print("[red]Script generation returned no output.[/red]")
         raise typer.Exit(1)
 
-    console.print(f"  Script generated in {gen_secs:.1f}s")
+    console.print(f"  Script generated in {t_gen.elapsed:.1f}s")
 
     # Phase 3: render + save
     script = gen_result.script
@@ -308,6 +345,11 @@ async def _run_generate(
     _save_output(content, out_path)
 
     # Summary
+    total_secs = t_analysis.elapsed + t_gen.elapsed
+    tokens = analysis.stats.total_prompt_tokens + analysis.stats.total_completion_tokens
+    if gen_result.token_usage:
+        tokens += gen_result.token_usage.total_tokens
+
     console.print()
     console.print("[bold green]Done![/bold green]")
     console.print(f"  Script: [bold]{script.title}[/bold]")
@@ -315,12 +357,16 @@ async def _run_generate(
     total_shots = sum(len(s.shots) for s in script.scenes)
     console.print(f"  Shots:  {total_shots}")
     console.print(f"  Output: {out_path}")
+    console.print(
+        f"  Time:   {total_secs:.1f}s  |  Tokens: {tokens}  |"
+        f"  Frames: {analysis.stats.frames_extracted} extracted,"
+        f" {analysis.stats.frames_analyzed} analysed"
+    )
 
-    total_secs = analysis_secs + gen_secs
-    tokens = analysis.stats.total_prompt_tokens + analysis.stats.total_completion_tokens
-    if gen_result.token_usage:
-        tokens += gen_result.token_usage.total_tokens
-    console.print(f"  Time:   {total_secs:.1f}s  |  Tokens: {tokens}")
+    logger.info(
+        "generate done run_id=%s duration=%.1fs tokens=%d frames=%d output=%s",
+        get_run_id(), total_secs, tokens, analysis.stats.frames_analyzed, out_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +392,8 @@ def chat(
       video-autocut chat "Analyse video.mp4 and describe the content"
     """
     settings = _init_settings()
+    new_run_id()
+    setup_logging(settings.log_level)
     asyncio.run(_run_chat(prompt, settings))
 
 

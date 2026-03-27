@@ -49,8 +49,9 @@ from video_autocut.domain.models import (
 )
 from video_autocut.domain.results import VideoAnalysisResult
 from video_autocut.domain.script_models import FrameAnalysis, VideoContentSummary
+from video_autocut.infrastructure.reliability import get_run_id, safe_cleanup_frames
 from video_autocut.settings import Settings, get_settings
-from video_autocut.tools.frame_extraction import cleanup_frames, extract_frames
+from video_autocut.tools.frame_extraction import extract_frames
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,7 @@ async def analyze_video(
     finally:
         # Cleanup frame files regardless of success or failure.
         if output_dir is not None:
-            cleaned = cleanup_frames(output_dir)
-            logger.debug("Pipeline cleanup removed %d frame file(s)", cleaned)
+            safe_cleanup_frames(output_dir, label="pipeline_cleanup")
 
     # Build stats
     total_duration = time.monotonic() - pipeline_start
@@ -308,8 +308,8 @@ async def _analyze_single_frame(
     )
 
     logger.debug(
-        "Frame %d analyzed in %.1fs (%d tokens)",
-        frame.frame_index, duration, usage.total_tokens,
+        "[%s] Frame %d analyzed in %.1fs (%d tokens)",
+        get_run_id(), frame.frame_index, duration, usage.total_tokens,
     )
     return result.output, token_rec
 
@@ -365,7 +365,8 @@ async def _synthesize_summary(
             step_name="content_synthesis",
         )
         logger.info(
-            "Synthesis completed in %.1fs (%d tokens)", duration, usage.total_tokens,
+            "[%s] Synthesis completed in %.1fs (%d tokens)",
+            get_run_id(), duration, usage.total_tokens,
         )
         return result.output, token_rec, None
 
